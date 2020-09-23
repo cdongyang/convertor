@@ -96,6 +96,7 @@ func TestGetCacheStruct(t *testing.T) {
 	}
 	s = getCacheStruct(reflect.TypeOf(TypeF{}))
 	assert.Equal(t, s.err, ErrConflictFieldNameAndTag)
+	// unexpcted result, don't use
 	type TypeAA struct {
 		FieldA  *TypeAA
 		FieldBB string
@@ -278,4 +279,24 @@ func TestConvertFunc(t *testing.T) {
 	i := new(int)
 	err = Convert("aaa", i)
 	assert.Equal(t, err, ErrNotConvertible)
+}
+
+func TestOption(t *testing.T) {
+	type SrcType struct {
+		Field string
+	}
+	type DestType struct {
+		Field1 []byte
+	}
+	convertor, err := NewConvertor(
+		OptionConvertFunc(func(src SrcType, dest *DestType) error {
+			dest.Field1 = []byte(src.Field)
+			return nil
+		}),
+	)
+	assert.Nil(t, err)
+	dest := &DestType{}
+	err = convertor.Convert(SrcType{"Src Field"}, dest)
+	assert.Nil(t, err)
+	assert.Equal(t, dest.Field1, []byte("Src Field"))
 }

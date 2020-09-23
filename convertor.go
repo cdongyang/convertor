@@ -12,29 +12,38 @@ const (
 	convertorTag = "convertor"
 )
 
+type convertFuncsType map[[2]reflect.Type]reflect.Value
+
 var (
 	cacheFields  sync.Map
-	convertFuncs = map[[2]reflect.Type]reflect.Value{}
+	convertFuncs = convertFuncsType{} // global convert func
 	errType      = reflect.TypeOf((*error)(nil)).Elem()
 )
 
 // RegisterConvertFunc register convert function like func (src SrcType, dest DestType) error
 // DestType must be pointer
 func RegisterConvertFunc(f interface{}) {
+	if err := registerConvertFunc(convertFuncs, f); err != nil {
+		panic(err)
+	}
+}
+
+func registerConvertFunc(convertFuncs convertFuncsType, f interface{}) error {
 	val := reflect.ValueOf(f)
 	if val.Type().Kind() != reflect.Func {
-		panic("bad convertor func")
+		return errors.New("bad convertor func")
 	}
 	if val.Type().NumIn() != 2 {
-		panic("bad convertor func in count")
+		return errors.New("bad convertor func in count")
 	}
 	if val.Type().In(1).Kind() != reflect.Ptr {
-		panic("convertor func dest type should be pointer")
+		return errors.New("convertor func dest type should be pointer")
 	}
 	if val.Type().NumOut() != 1 || !isErrorType(val.Type().Out(0)) {
-		panic("bad convertor func out")
+		return errors.New("bad convertor func out")
 	}
 	convertFuncs[[2]reflect.Type{val.Type().In(0), val.Type().In(1)}] = val
+	return nil
 }
 
 func isErrorType(typ reflect.Type) bool {
@@ -163,7 +172,35 @@ func inFields(sub, full []typeField) bool {
 	return false
 }
 
-type Option struct {
+type Options struct {
+	convertFuncs convertFuncsType
+}
+
+type Option func(*Options) error
+
+type convertor struct {
+	opts Options
+}
+
+type Convertor interface {
+	Convert(src, dest interface{}) error
+}
+
+func OptionConvertFunc(f interface{}) Option {
+	return func(opts *Options) error {
+		return registerConvertFunc(opts.convertFuncs, f)
+	}
+}
+
+func NewConvertor(opts ...Option) (Convertor, error) {
+	c := &convertor{}
+	c.opts.convertFuncs = convertFuncsType{}
+	for _, o := range opts {
+		if err := o(&c.opts); err != nil {
+			return nil, err
+		}
+	}
+	return c, nil
 }
 
 /*
@@ -184,7 +221,14 @@ Example:
 	var b = &C{}
 	Convert(a,b)
 */
-func Convert(src interface{}, dest interface{}) (err error) {
+
+var DefaultConvertor, _ = NewConvertor()
+
+func Convert(src, dest interface{}) error {
+	return DefaultConvertor.Convert(src, dest)
+}
+
+func (c *convertor) Convert(src, dest interface{}) (err error) {
 	destVal := reflect.ValueOf(dest)
 	if destVal.Kind() != reflect.Ptr {
 		return ErrDestinationNotPointer
@@ -192,12 +236,17 @@ func Convert(src interface{}, dest interface{}) (err error) {
 	if destVal.IsNil() {
 		return ErrNilDestination
 	}
-	return convert(reflect.ValueOf(src), destVal)
+	return c.convert(reflect.ValueOf(src), destVal)
 }
 
-func convert(src, dest reflect.Value) error {
-	if f, ok := convertFuncs[[2]reflect.Type{indirect(src).Type(), dest.Type()}]; ok {
-		out := f.Call([]reflect.Value{indirect(src), dest})
+func (c *convertor) convert(src, dest reflect.Value) error {
+	convertFuncKey := [2]reflect.Type{indirect(src).Type(), dest.Type()}
+	convertFunc, ok := c.opts.convertFuncs[convertFuncKey]
+	if !ok {
+		convertFunc, ok = convertFuncs[convertFuncKey]
+	}
+	if ok {
+		out := convertFunc.Call([]reflect.Value{indirect(src), dest})
 		if err, ok := out[0].Interface().(error); ok {
 			return err
 		}
@@ -238,7 +287,7 @@ func convert(src, dest reflect.Value) error {
 			if destElem.Kind() != reflect.Ptr && destElem.CanAddr() {
 				destElem = destElem.Addr()
 			}
-			if err := convert(src.Index(i), destElem); err != nil {
+			if err := c.convert(src.Index(i), destElem); err != nil {
 				return err
 			}
 		}
@@ -260,7 +309,7 @@ func convert(src, dest reflect.Value) error {
 		if val == zeroValue || (val.Kind() == reflect.Ptr && val.IsNil()) {
 			continue
 		}
-		if err := setValueByPath(dest, val, destFields[i]); err != nil {
+		if err := c.setValueByPath(dest, val, destFields[i]); err != nil {
 			return err
 		}
 	}
@@ -290,7 +339,7 @@ func getValueByPath(val reflect.Value, field typeField) reflect.Value {
 	return val
 }
 
-func setValueByPath(dest, val reflect.Value, field typeField) error {
+func (c *convertor) setValueByPath(dest, val reflect.Value, field typeField) error {
 	for {
 		if dest.Kind() == reflect.Ptr {
 			if dest.IsNil() {
@@ -313,5 +362,5 @@ func setValueByPath(dest, val reflect.Value, field typeField) error {
 	if dest.Kind() != reflect.Ptr && dest.CanAddr() {
 		dest = dest.Addr()
 	}
-	return convert(val, dest)
+	return c.convert(val, dest)
 }
