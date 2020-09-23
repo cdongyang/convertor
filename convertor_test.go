@@ -257,12 +257,27 @@ func TestConvertFunc(t *testing.T) {
 		Field  TypeA
 		Field1 TypeB
 	}
+	type TypeFF struct {
+		Field1 TypeB
+	}
 	err := Convert(TypeCC{}, &TypeDD{})
 	assert.NotNil(t, err)
-	assert.Equal(t, err.Error(), "type convertor.TypeA has not same fields name with type *convertor.TypeB")
+	assert.Equal(t, err.Error(), "dest has no field to receive src field FieldA(string)")
 	err = Convert(TypeDD{}, &TypeEE{})
 	assert.NotNil(t, err)
-	assert.Equal(t, err.Error(), "type convertor.TypeDD has not same fields len with type *convertor.TypeEE")
+	assert.Equal(t, err.Error(), "src has no field FieldA(string) convert to dest")
+	err = Convert(TypeEE{}, &TypeCC{})
+	assert.Equal(t, err.Error(), "dest has no field to receive src field Field1(convertor.TypeB)")
+	err = Convert(TypeCC{}, &TypeEE{})
+	assert.Equal(t, err.Error(), "src has no field Field1(convertor.TypeB) convert to dest")
+	err = DestNotExistFieldIgnoreConvertor.Convert(TypeEE{}, &TypeFF{})
+	assert.Nil(t, err)
+	err = SrcNotExistFieldIgnoreConvertor.Convert(TypeFF{}, &TypeEE{})
+	assert.Nil(t, err)
+	err = DestNotExistFieldIgnoreConvertor.Convert(TypeEE{}, &TypeCC{})
+	assert.Nil(t, err)
+	err = SrcNotExistFieldIgnoreConvertor.Convert(TypeCC{}, &TypeEE{})
+	assert.Nil(t, err)
 	RegisterConvertFunc(func(a TypeA, b *TypeB) (err error) {
 		b.FieldB, err = strconv.ParseInt(a.FieldA, 10, 64)
 		return

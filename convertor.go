@@ -173,7 +173,9 @@ func inFields(sub, full []typeField) bool {
 }
 
 type Options struct {
-	convertFuncs convertFuncsType
+	convertFuncs            convertFuncsType
+	srcNotExistFieldIgnore  bool
+	destNotExistFieldIgnore bool
 }
 
 type Option func(*Options) error
@@ -189,6 +191,20 @@ type Convertor interface {
 func OptionConvertFunc(f interface{}) Option {
 	return func(opts *Options) error {
 		return registerConvertFunc(opts.convertFuncs, f)
+	}
+}
+
+func OptionSrcNotExistFieldIgnore() Option {
+	return func(opts *Options) error {
+		opts.srcNotExistFieldIgnore = true
+		return nil
+	}
+}
+
+func OptionDestNotExistFieldIgnore() Option {
+	return func(opts *Options) error {
+		opts.destNotExistFieldIgnore = true
+		return nil
 	}
 }
 
@@ -223,6 +239,8 @@ Example:
 */
 
 var DefaultConvertor, _ = NewConvertor()
+var SrcNotExistFieldIgnoreConvertor, _ = NewConvertor(OptionSrcNotExistFieldIgnore())
+var DestNotExistFieldIgnoreConvertor, _ = NewConvertor(OptionDestNotExistFieldIgnore())
 
 func Convert(src, dest interface{}) error {
 	return DefaultConvertor.Convert(src, dest)
@@ -298,20 +316,42 @@ func (c *convertor) convert(src, dest reflect.Value) error {
 	}
 	srcFields := srcStruct.fields
 	destFields := destStruct.fields
-	if len(srcStruct.fields) != len(destStruct.fields) {
-		return fmt.Errorf("type %s has not same fields len with type %s", src.Type(), dest.Type())
-	}
-	for i := range srcFields {
-		if srcFields[i].Name != destFields[i].Name {
-			return fmt.Errorf("type %s has not same fields name with type %s", src.Type(), dest.Type())
+	var i, j int
+	for i < len(srcFields) && j < len(destFields) {
+		if srcFields[i].Name != destFields[j].Name {
+			var err error
+			if srcFields[i].Name < destFields[j].Name {
+				if c.opts.destNotExistFieldIgnore {
+					i++
+					continue
+				}
+				err = fmt.Errorf("dest has no field to receive src field %s(%v)", srcFields[i].Name, srcFields[i].Type)
+			} else {
+				if c.opts.srcNotExistFieldIgnore {
+					j++
+					continue
+				}
+				err = fmt.Errorf("src has no field %s(%v) convert to dest", destFields[j].Name, destFields[j].Type)
+			}
+			return err
 		}
 		val := getValueByPath(src, srcFields[i])
 		if val == zeroValue || (val.Kind() == reflect.Ptr && val.IsNil()) {
+			i++
+			j++
 			continue
 		}
-		if err := c.setValueByPath(dest, val, destFields[i]); err != nil {
+		if err := c.setValueByPath(dest, val, destFields[j]); err != nil {
 			return err
 		}
+		i++
+		j++
+	}
+	if i < len(srcFields) && !c.opts.destNotExistFieldIgnore {
+		return fmt.Errorf("dest has no field to receive src field %s(%v)", srcFields[i].Name, srcFields[i].Type)
+	}
+	if j < len(destFields) && !c.opts.srcNotExistFieldIgnore {
+		return fmt.Errorf("src has no field %s(%v) convert to dest", destFields[j].Name, destFields[j].Type)
 	}
 	return nil
 }
