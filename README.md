@@ -17,9 +17,13 @@ In addition, there are some rules to convert struct to field tree:
 - If a direct field name is conflict with another direct field's convertor tag, it will return error, you should explicitly ignore a field by convertor tag.
 - A field with convertor tag - will be ignored.
 - A struct field with convertor tag + will be flatten.
+- If two type is assignable, it will use reflect.Value.Set to assign direct.
+- If two native go type is convertible, it will use reflect.Value.Convert to convert, but value may change, for example: float64(1.2) change to int(1)
+
+Not support list:
 - Not support over two level pointer.
-- Not support Map, Array and Interface type
-- Not support circle type field, for example: struct A has a field struct B, and struct B has a field struct A
+- Not support Map and Array type
+- Not support circle struct rely, it will return error, for example: struct A has a field struct B, and struct B has a field struct A
 
 Example:
 ```go

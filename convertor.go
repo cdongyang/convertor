@@ -22,6 +22,7 @@ var (
 
 // RegisterConvertFunc register convert function like func (src SrcType, dest DestType) error
 // DestType must be pointer
+// concurrent unsafe, just register in main func, and it will panic if it's a bad convert func
 func RegisterConvertFunc(f interface{}) {
 	if err := registerConvertFunc(convertFuncs, f); err != nil {
 		panic(err)
@@ -73,21 +74,31 @@ var (
 	ErrNotConvertible          = errors.New("not convertible")
 	ErrDestinationNotPointer   = errors.New("destination value is not pointer")
 	ErrNilDestination          = errors.New("nil destination")
+	ErrCircleStructRely        = errors.New("circle struct rely")
 	notStructType              = &typeStruct{}
 )
 
-func getCacheStruct(typ reflect.Type) (finalTypeStruct *typeStruct) {
+func getCacheStruct(typ reflect.Type, typePath map[reflect.Type]bool) (finalTypeStruct *typeStruct) {
 	if val, ok := cacheFields.Load(typ); ok {
 		return val.(*typeStruct)
 	}
+	if typePath == nil {
+		typePath = map[reflect.Type]bool{}
+	}
+	if typePath[typ] { // prevent cirle struct rely
+		return &typeStruct{
+			err: ErrCircleStructRely,
+		}
+	}
+	typePath[typ] = true
 	originType := typ
 	defer func() {
 		sort.Slice(finalTypeStruct.fields, func(i, j int) bool {
 			return finalTypeStruct.fields[i].Name < finalTypeStruct.fields[j].Name
 		})
 		cacheFields.Store(originType, finalTypeStruct)
+		typePath[typ] = false
 	}()
-	cacheFields.Store(originType, notStructType) // prevent self loop
 	if typ.Kind() == reflect.Ptr {
 		typ = typ.Elem()
 	}
@@ -133,7 +144,7 @@ func getCacheStruct(typ reflect.Type) (finalTypeStruct *typeStruct) {
 	}
 	var allAnonFields []typeField
 	for i, field := range anonymousStructField {
-		ftStruct := getCacheStruct(field.Type)
+		ftStruct := getCacheStruct(field.Type, typePath)
 		if ftStruct.err != nil {
 			return ftStruct
 		}
@@ -278,8 +289,8 @@ func (c *convertor) convert(src, dest reflect.Value) error {
 		indirect(dest).Set(indirect(src).Convert(indirect(dest).Type()))
 		return nil
 	}
-	srcStruct := getCacheStruct(src.Type())
-	destStruct := getCacheStruct(dest.Type())
+	srcStruct := getCacheStruct(src.Type(), nil)
+	destStruct := getCacheStruct(dest.Type(), nil)
 	if srcStruct.err != nil {
 		return srcStruct.err
 	}

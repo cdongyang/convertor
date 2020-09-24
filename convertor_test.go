@@ -44,7 +44,7 @@ func TestGetCacheStruct(t *testing.T) {
 			FlattenField string
 		} `convertor:"+"`
 	}
-	s := getCacheStruct(reflect.TypeOf(TypeA{}))
+	s := getCacheStruct(reflect.TypeOf(TypeA{}), nil)
 	type result struct {
 		Name   string
 		Fields []result
@@ -67,7 +67,7 @@ func TestGetCacheStruct(t *testing.T) {
 				t.Log(field.Name, res[i].Name)
 				return false
 			}
-			s := getCacheStruct(field.Type)
+			s := getCacheStruct(field.Type, nil)
 			if s != notStructType || len(res[i].Fields) > 0 {
 				if !checkEqual(s, res[i].Fields) {
 					t.Log(field, s, res[i].Name, res[i].Fields)
@@ -87,23 +87,22 @@ func TestGetCacheStruct(t *testing.T) {
 		TypeD
 		TypeB
 	}
-	s = getCacheStruct(reflect.TypeOf(TypeE{}))
+	s = getCacheStruct(reflect.TypeOf(TypeE{}), nil)
 	assert.Equal(t, s.err, ErrAmbiguousField)
 
 	type TypeF struct {
 		FieldD string
 		FieldE string `convertor:"FieldD"`
 	}
-	s = getCacheStruct(reflect.TypeOf(TypeF{}))
+	s = getCacheStruct(reflect.TypeOf(TypeF{}), nil)
 	assert.Equal(t, s.err, ErrConflictFieldNameAndTag)
-	// unexpcted result, don't use
 	type TypeAA struct {
 		FieldA  *TypeAA
 		FieldBB string
 		*TypeAA // self loop Anonymous will be ignored
 	}
-	s = getCacheStruct(reflect.TypeOf(TypeAA{}))
-	t.Log(s)
+	s = getCacheStruct(reflect.TypeOf(TypeAA{}), nil)
+	assert.Equal(t, s.err, ErrCircleStructRely)
 }
 
 func TestConvert(t *testing.T) {
@@ -314,4 +313,33 @@ func TestOption(t *testing.T) {
 	err = convertor.Convert(SrcType{"Src Field"}, dest)
 	assert.Nil(t, err)
 	assert.Equal(t, dest.Field1, []byte("Src Field"))
+}
+
+type People struct {
+	firstName string
+	lastName  string
+}
+
+func (p People) FullName() string {
+	return p.firstName + " " + p.lastName
+}
+
+type Peopler interface {
+	FullName() string
+}
+
+func TestConvertInterface(t *testing.T) {
+	type TypeA struct {
+		P People
+	}
+	type TypeB struct {
+		P Peopler
+	}
+	b := &TypeB{}
+	err := Convert(TypeA{P: People{firstName: "aaa", lastName: "bbb"}}, b)
+	assert.Nil(t, err)
+	assert.Equal(t, b.P.FullName(), "aaa bbb")
+	a := &TypeA{}
+	err = Convert(*b, a)
+	assert.Equal(t, err, ErrNotConvertible)
 }
