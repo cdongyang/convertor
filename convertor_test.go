@@ -343,3 +343,11 @@ func TestConvertInterface(t *testing.T) {
 	err = Convert(*b, a)
 	assert.Equal(t, err, ErrNotConvertible)
 }
+
+func TestRegisterConvertorFuncError(t *testing.T) {
+	assert.Equal(t, BadConvertFuncNotFunc, registerConvertFunc(nil, 1))
+	assert.Equal(t, BadConvertFuncInCount, registerConvertFunc(nil, func() {}))
+	assert.Equal(t, BadConvertFuncSrcTypeIsPointer, registerConvertFunc(nil, func(src *int, dest *float64) error { return nil }))
+	assert.Equal(t, BadConvertFuncDestTypeNotPointer, registerConvertFunc(nil, func(src int, dest float64) error { return nil }))
+	assert.Equal(t, BadConvertFuncOut, registerConvertFunc(nil, func(src int, dest *float64) {}))
+}

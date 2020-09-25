@@ -21,7 +21,7 @@ var (
 )
 
 // RegisterConvertFunc register convert function like func (src SrcType, dest DestType) error
-// DestType must be pointer
+// SrcType must not be pointer, DestType must be pointer
 // concurrent unsafe, just register in main func, and it will panic if it's a bad convert func
 func RegisterConvertFunc(f interface{}) {
 	if err := registerConvertFunc(convertFuncs, f); err != nil {
@@ -29,19 +29,30 @@ func RegisterConvertFunc(f interface{}) {
 	}
 }
 
+var (
+	BadConvertFuncNotFunc            = errors.New("convert func is not function")
+	BadConvertFuncInCount            = errors.New("bad convertor func in count")
+	BadConvertFuncSrcTypeIsPointer   = errors.New("convertor func src type should not be pointer")
+	BadConvertFuncDestTypeNotPointer = errors.New("convertor func dest type should be pointer")
+	BadConvertFuncOut                = errors.New("bad convertor func out")
+)
+
 func registerConvertFunc(convertFuncs convertFuncsType, f interface{}) error {
 	val := reflect.ValueOf(f)
 	if val.Type().Kind() != reflect.Func {
-		return errors.New("bad convertor func")
+		return BadConvertFuncNotFunc
 	}
 	if val.Type().NumIn() != 2 {
-		return errors.New("bad convertor func in count")
+		return BadConvertFuncInCount
+	}
+	if val.Type().In(0).Kind() == reflect.Ptr {
+		return BadConvertFuncSrcTypeIsPointer
 	}
 	if val.Type().In(1).Kind() != reflect.Ptr {
-		return errors.New("convertor func dest type should be pointer")
+		return BadConvertFuncDestTypeNotPointer
 	}
 	if val.Type().NumOut() != 1 || !isErrorType(val.Type().Out(0)) {
-		return errors.New("bad convertor func out")
+		return BadConvertFuncOut
 	}
 	convertFuncs[[2]reflect.Type{val.Type().In(0), val.Type().In(1)}] = val
 	return nil
@@ -199,6 +210,7 @@ type Convertor interface {
 	Convert(src, dest interface{}) error
 }
 
+// concurrent unsafe
 func OptionConvertFunc(f interface{}) Option {
 	return func(opts *Options) error {
 		return registerConvertFunc(opts.convertFuncs, f)
@@ -245,17 +257,17 @@ Example:
 		D
 	}
 	var a = B{}
-	var b = &C{}
-	Convert(a,b)
+	var b = C{}
+	Convert(a, &b)
+	Convert(&a, &b)
 */
+func Convert(src, dest interface{}) error {
+	return DefaultConvertor.Convert(src, dest)
+}
 
 var DefaultConvertor, _ = NewConvertor()
 var SrcNotExistFieldIgnoreConvertor, _ = NewConvertor(OptionSrcNotExistFieldIgnore())
 var DestNotExistFieldIgnoreConvertor, _ = NewConvertor(OptionDestNotExistFieldIgnore())
-
-func Convert(src, dest interface{}) error {
-	return DefaultConvertor.Convert(src, dest)
-}
 
 func (c *convertor) Convert(src, dest interface{}) (err error) {
 	destVal := reflect.ValueOf(dest)
@@ -398,7 +410,6 @@ func (c *convertor) setValueByPath(dest, val reflect.Value, field typeField) err
 			}
 			dest = dest.Elem()
 		}
-		//log.Println(dest.Type(), field.Idx, val.Type(), val.Type().String(), val.Type().PkgPath())
 		dest = dest.Field(field.Idx)
 		if field.NextStruct == nil {
 			break
