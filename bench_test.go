@@ -135,7 +135,7 @@ func BenchmarkConvertStruct(b *testing.B) {
 		assert.Equal(b, bb.FieldA, 11)
 		assert.Equal(b, bb.FieldB, float32(1.3))
 	})
-	b.Run("ConvertOptionFunc", func(b *testing.B) {
+	b.Run("ConvertOptionConvertFunc", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			*bb = TypeB{}
 			if err := convertor.Convert(&aa, bb,
@@ -149,6 +149,19 @@ func BenchmarkConvertStruct(b *testing.B) {
 		}
 		assert.Equal(b, bb.FieldA, 11)
 		assert.Equal(b, bb.FieldB, float32(1.3))
+	})
+	b.Run("ConvertOption", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			*bb = TypeB{}
+			if err := convertor.Convert(&aa, bb,
+				convertor.OptionSrcNotExistFieldIgnore(),
+				convertor.OptionDestNotExistFieldIgnore(),
+			); err != nil {
+				b.Fatal(err)
+			}
+		}
+		assert.Equal(b, bb.FieldA, 10)
+		assert.Equal(b, bb.FieldB, float32(1.2))
 	})
 	b.Run("ConvertNative", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {

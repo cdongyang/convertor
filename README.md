@@ -18,7 +18,7 @@ In addition, there are some rules to convert struct to field tree:
 - A field with convertor tag - will be ignored.
 - A struct field with convertor tag + will be flatten.
 - If two type is assignable, it will use reflect.Value.Set to assign direct.
-- If two native go type is convertible, it will use reflect.Value.Convert to convert, but value may change, for example: float64(1.2) change to int(1)
+- Different int type or float type can convert, but it can't convert between int and float type, you can use a convert func to deal with it.
 
 Not support list:
 - Not support over two level pointer.

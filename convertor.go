@@ -230,6 +230,9 @@ type Convertor interface {
 // concurrent unsafe
 func OptionConvertFunc(f interface{}) Option {
 	return func(opts *Options) error {
+		if opts.convertFuncs == nil {
+			opts.convertFuncs = convertFuncsType{}
+		}
 		return registerConvertFunc(opts.convertFuncs, f)
 	}
 }
@@ -250,7 +253,6 @@ func OptionDestNotExistFieldIgnore() Option {
 
 func NewConvertor(opts ...Option) (Convertor, error) {
 	c := &convertor{}
-	c.opts.convertFuncs = convertFuncsType{}
 	for _, o := range opts {
 		if err := o(&c.opts); err != nil {
 			return nil, err
@@ -306,7 +308,7 @@ func (c *convertor) Convert(src, dest interface{}) (err error) {
 }
 
 func (c *convertor) getConvertFunc(src, dest reflect.Value) (convertFunc reflect.Value, ok bool) {
-	convertFuncKey := [2]reflect.Type{indirect(src).Type(), dest.Type()}
+	convertFuncKey := [2]reflect.Type{src.Type(), dest.Type()}
 	if len(c.opts.convertFuncs) > 0 {
 		convertFunc, ok = c.opts.convertFuncs[convertFuncKey]
 	}
@@ -317,21 +319,21 @@ func (c *convertor) getConvertFunc(src, dest reflect.Value) (convertFunc reflect
 }
 
 func (c *convertor) convert(src, dest reflect.Value, srcStruct, destStruct *typeStruct) error {
-	convertFunc, ok := c.getConvertFunc(src, dest)
+	indirectSrc := reflect.Indirect(src)
+	convertFunc, ok := c.getConvertFunc(indirectSrc, dest)
 	if ok {
-		out := convertFunc.Call([]reflect.Value{indirect(src), dest})
+		out := convertFunc.Call([]reflect.Value{indirectSrc, dest})
 		if err, ok := out[0].Interface().(error); ok {
 			return err
 		}
 		return nil
 	}
-	indirectSrc, indirectDest := indirect(src), indirect(dest)
+	indirectDest := reflect.Indirect(dest)
 	if indirectSrc.Type().AssignableTo(indirectDest.Type()) {
 		indirectDest.Set(indirectSrc)
 		return nil
 	}
-	if indirectSrc.Type().ConvertibleTo(indirectDest.Type()) {
-		indirectDest.Set(indirectSrc.Convert(indirectDest.Type()))
+	if c.convertTo(indirectSrc, indirectDest) {
 		return nil
 	}
 	if srcStruct == nil {
@@ -418,8 +420,36 @@ func (c *convertor) convert(src, dest reflect.Value, srcStruct, destStruct *type
 	return nil
 }
 
-func indirect(val reflect.Value) reflect.Value {
-	return reflect.Indirect(val)
+func (c *convertor) convertTo(src, dest reflect.Value) bool {
+	switch src.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		switch dest.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			dest.SetInt(src.Int())
+			return true
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			dest.SetUint(uint64(src.Int()))
+			return true
+		}
+
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		switch dest.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			dest.SetInt(int64(src.Uint()))
+			return true
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			dest.SetUint(src.Uint())
+			return true
+		}
+	case reflect.Float32, reflect.Float64:
+		switch dest.Kind() {
+		case reflect.Float32, reflect.Float64:
+			dest.SetFloat(src.Float())
+			return true
+		}
+	}
+
+	return false
 }
 
 var zeroValue = reflect.Value{}

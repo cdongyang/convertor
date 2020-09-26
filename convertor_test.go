@@ -143,7 +143,7 @@ func TestAllConvertRule(t *testing.T) {
 	type TypeE struct {
 		EE int
 		FF struct {
-			GG int
+			GG uint32
 		}
 	}
 
@@ -169,13 +169,13 @@ func TestAllConvertRule(t *testing.T) {
 			DD float32
 		}
 		EEE struct {
-			EE int
+			EE uint16
 			FF *struct {
 				GG int
 			}
 		}
 		FFF struct {
-			XX int
+			XX float64
 		} `convertor:"FF"`
 		Flatten struct {
 			FlattenField string
