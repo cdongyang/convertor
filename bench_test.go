@@ -1,6 +1,7 @@
 package convertor_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -52,6 +53,16 @@ func BenchmarkConvertSlice(b *testing.B) {
 		}
 		ass(b)
 	})
+	b.Run("JSONConvert", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			*bb = SliceTypeB{}
+			data, _ := json.Marshal(&aa)
+			if err := json.Unmarshal(data, &bb); err != nil {
+				b.Fatal(err)
+			}
+		}
+		ass(b)
+	})
 	b.Run("ConvertNative", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			*bb = SliceTypeB{
@@ -96,6 +107,17 @@ func BenchmarkConvertStruct(b *testing.B) {
 		assert.Equal(b, aa.FieldA, bb.FieldA)
 		assert.Equal(b, aa.FieldB, bb.FieldB)
 	})
+	b.Run("JSONConvert", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			*bb = TypeB{}
+			data, _ := json.Marshal(aa)
+			if err := json.Unmarshal(data, bb); err != nil {
+				b.Fatal(err)
+			}
+		}
+		assert.Equal(b, aa.FieldA, bb.FieldA)
+		assert.Equal(b, aa.FieldB, bb.FieldB)
+	})
 	b.Run("ConvertFunc", func(b *testing.B) {
 		customConvertor, err := convertor.NewConvertor(
 			convertor.OptionConvertFunc(func(a TypeA, b *TypeB) error {
@@ -107,6 +129,21 @@ func BenchmarkConvertStruct(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			*bb = TypeB{}
 			if err := customConvertor.Convert(&aa, bb); err != nil {
+				b.Fatal(err)
+			}
+		}
+		assert.Equal(b, bb.FieldA, 11)
+		assert.Equal(b, bb.FieldB, float32(1.3))
+	})
+	b.Run("ConvertOptionFunc", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			*bb = TypeB{}
+			if err := convertor.Convert(&aa, bb,
+				convertor.OptionConvertFunc(func(a TypeA, b *TypeB) error {
+					*b = TypeB{FieldA: a.FieldA + 1, FieldB: 1.3}
+					return nil
+				}),
+			); err != nil {
 				b.Fatal(err)
 			}
 		}

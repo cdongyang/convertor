@@ -278,7 +278,14 @@ Example:
 	Convert(a, &b)
 	Convert(&a, &b)
 */
-func Convert(src, dest interface{}) error {
+func Convert(src, dest interface{}, opts ...Option) error {
+	if len(opts) > 0 {
+		c, err := NewConvertor(opts...)
+		if err != nil {
+			return err
+		}
+		return c.Convert(src, dest)
+	}
 	return DefaultConvertor.Convert(src, dest)
 }
 
