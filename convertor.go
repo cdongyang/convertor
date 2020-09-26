@@ -72,11 +72,12 @@ type typeStruct struct {
 }
 
 type typeField struct {
-	Type       reflect.Type
-	Name       string
-	Idx        int
-	NextIdx    int
-	NextStruct *typeStruct
+	Type        reflect.Type
+	Name        string
+	Idx         int
+	NextIdx     int
+	NextStruct  *typeStruct
+	FinalStruct *typeStruct
 }
 
 var (
@@ -145,6 +146,7 @@ func getCacheStruct(typ reflect.Type, typePath map[reflect.Type]bool) (finalType
 			anonymousStructFieldIndex = append(anonymousStructFieldIndex, i)
 			continue
 		}
+		tf.FinalStruct = getCacheStruct(typ, nil)
 		finalFields = append(finalFields, tf)
 		if nameMap[tf.Name] {
 			return &typeStruct{
@@ -169,11 +171,12 @@ func getCacheStruct(typ reflect.Type, typePath map[reflect.Type]bool) (finalType
 			if !nameMap[subField.Name] {
 				nameMap[subField.Name] = true
 				finalFields = append(finalFields, typeField{
-					Type:       subField.Type,
-					Name:       subField.Name,
-					Idx:        anonymousStructFieldIndex[i],
-					NextStruct: ftStruct,
-					NextIdx:    subField.Idx,
+					Type:        subField.Type,
+					Name:        subField.Name,
+					Idx:         anonymousStructFieldIndex[i],
+					NextStruct:  ftStruct,
+					NextIdx:     subField.Idx,
+					FinalStruct: subField.FinalStruct,
 				})
 			}
 		}
@@ -280,12 +283,19 @@ func (c *convertor) Convert(src, dest interface{}) (err error) {
 	return c.convert(reflect.ValueOf(src), destVal)
 }
 
-func (c *convertor) convert(src, dest reflect.Value) error {
+func (c *convertor) getConvertFunc(src, dest reflect.Value) (convertFunc reflect.Value, ok bool) {
 	convertFuncKey := [2]reflect.Type{indirect(src).Type(), dest.Type()}
-	convertFunc, ok := c.opts.convertFuncs[convertFuncKey]
-	if !ok {
+	if len(c.opts.convertFuncs) > 0 {
+		convertFunc, ok = c.opts.convertFuncs[convertFuncKey]
+	}
+	if !ok && len(convertFuncs) > 0 {
 		convertFunc, ok = convertFuncs[convertFuncKey]
 	}
+	return
+}
+
+func (c *convertor) convert(src, dest reflect.Value) error {
+	convertFunc, ok := c.getConvertFunc(src, dest)
 	if ok {
 		out := convertFunc.Call([]reflect.Value{indirect(src), dest})
 		if err, ok := out[0].Interface().(error); ok {
@@ -293,12 +303,13 @@ func (c *convertor) convert(src, dest reflect.Value) error {
 		}
 		return nil
 	}
-	if indirect(src).Type().AssignableTo(indirect(dest).Type()) {
-		indirect(dest).Set(indirect(src))
+	indirectSrc, indirectDest := indirect(src), indirect(dest)
+	if indirectSrc.Type().AssignableTo(indirectDest.Type()) {
+		indirectDest.Set(indirectSrc)
 		return nil
 	}
-	if indirect(src).Type().ConvertibleTo(indirect(dest).Type()) {
-		indirect(dest).Set(indirect(src).Convert(indirect(dest).Type()))
+	if indirectSrc.Type().ConvertibleTo(indirectDest.Type()) {
+		indirectDest.Set(indirectSrc.Convert(indirectDest.Type()))
 		return nil
 	}
 	srcStruct := getCacheStruct(src.Type(), nil)
@@ -313,8 +324,8 @@ func (c *convertor) convert(src, dest reflect.Value) error {
 		if src.IsNil() {
 			return nil
 		}
-		src = indirect(src)
-		dest = indirect(dest)
+		src = indirectSrc
+		dest = indirectDest
 		dest.Set(reflect.MakeSlice(dest.Type(), src.Len(), src.Cap()))
 		for i := 0; i < src.Len(); i++ {
 			srcElem := src.Index(i)
@@ -334,7 +345,7 @@ func (c *convertor) convert(src, dest reflect.Value) error {
 		}
 		return nil
 	}
-	if indirect(src).Kind() != reflect.Struct || indirect(dest).Kind() != reflect.Struct {
+	if indirectSrc.Kind() != reflect.Struct || indirectDest.Kind() != reflect.Struct {
 		return ErrNotConvertible
 	}
 	srcFields := srcStruct.fields
