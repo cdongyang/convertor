@@ -157,10 +157,10 @@ func TestAllConvertRule(t *testing.T) {
 		TypeC         `convertor:"FF"`
 		dd            string
 		FlattenField  string
-		Array         []TypeC
-		PtrArray      []*TypeC
-		ValToPtrArray []TypeC
-		NilArray      []TypeC
+		Slice         []TypeC
+		PtrSlice      []*TypeC
+		ValToPtrSlice []TypeC
+		NilSlice      []TypeC
 	}
 
 	type TypeAA struct {
@@ -180,16 +180,16 @@ func TestAllConvertRule(t *testing.T) {
 		Flatten struct {
 			FlattenField string
 		} `convertor:"+"`
-		Array []struct {
+		Slice []struct {
 			XX float32
 		}
-		PtrArray []*struct {
+		PtrSlice []*struct {
 			XX float32
 		}
-		ValToPtrArray []*struct {
+		ValToPtrSlice []*struct {
 			XX float32
 		}
-		NilArray []struct {
+		NilSlice []struct {
 			XX float32
 		}
 	}
@@ -203,10 +203,10 @@ func TestAllConvertRule(t *testing.T) {
 			XX: 1.432,
 		},
 		FlattenField:  "flatten field",
-		Array:         []TypeC{{XX: 1.2}, {XX: 1.3}},
-		PtrArray:      []*TypeC{nil, {XX: 1.2}},
-		ValToPtrArray: []TypeC{{XX: 1.2}, {}},
-		NilArray:      nil,
+		Slice:         []TypeC{{XX: 1.2}, {XX: 1.3}},
+		PtrSlice:      []*TypeC{nil, {XX: 1.2}},
+		ValToPtrSlice: []TypeC{{XX: 1.2}, {}},
+		NilSlice:      nil,
 	}
 	var b = &TypeAA{}
 	ass := assert.New(t)
@@ -223,19 +223,19 @@ func TestAllConvertRule(t *testing.T) {
 	equal3(a.EEE.FF.GG, b.EEE.FF.GG, 0)
 	ass.EqualValues(b.FFF.XX, 1)
 	equal3(a.FlattenField, b.Flatten.FlattenField, "flatten field")
-	equal3(len(a.Array), len(b.Array), 2)
-	equal3(a.Array[0].XX, b.Array[0].XX, float32(1.2))
-	equal3(a.Array[1].XX, b.Array[1].XX, float32(1.3))
-	equal3(len(a.PtrArray), len(b.PtrArray), 2)
-	if !(a.PtrArray[0] == nil && b.PtrArray[0] == nil) {
-		t.Fatal(a.PtrArray, b.PtrArray)
+	equal3(len(a.Slice), len(b.Slice), 2)
+	equal3(a.Slice[0].XX, b.Slice[0].XX, float32(1.2))
+	equal3(a.Slice[1].XX, b.Slice[1].XX, float32(1.3))
+	equal3(len(a.PtrSlice), len(b.PtrSlice), 2)
+	if !(a.PtrSlice[0] == nil && b.PtrSlice[0] == nil) {
+		t.Fatal(a.PtrSlice, b.PtrSlice)
 	}
-	equal3(a.PtrArray[1].XX, b.PtrArray[1].XX, float32(1.2))
-	equal3(len(a.ValToPtrArray), len(b.ValToPtrArray), 2)
-	equal3(a.ValToPtrArray[0].XX, b.ValToPtrArray[0].XX, float32(1.2))
-	equal3(a.ValToPtrArray[1].XX, b.ValToPtrArray[1].XX, float32(0))
-	if !(a.NilArray == nil && b.NilArray == nil) {
-		t.Fatal(a.NilArray, b.NilArray)
+	equal3(a.PtrSlice[1].XX, b.PtrSlice[1].XX, float32(1.2))
+	equal3(len(a.ValToPtrSlice), len(b.ValToPtrSlice), 2)
+	equal3(a.ValToPtrSlice[0].XX, b.ValToPtrSlice[0].XX, float32(1.2))
+	equal3(a.ValToPtrSlice[1].XX, b.ValToPtrSlice[1].XX, float32(0))
+	if !(a.NilSlice == nil && b.NilSlice == nil) {
+		t.Fatal(a.NilSlice, b.NilSlice)
 	}
 }
 

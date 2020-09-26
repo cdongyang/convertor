@@ -67,8 +67,9 @@ TO consider:
 interface assign
 */
 type typeStruct struct {
-	err    error
-	fields []typeField
+	err        error
+	fields     []typeField
+	elemStruct *typeStruct // array or slice element struct
 }
 
 type typeField struct {
@@ -77,7 +78,7 @@ type typeField struct {
 	Idx         int
 	NextIdx     int
 	NextStruct  *typeStruct
-	FinalStruct *typeStruct
+	FinalStruct *typeStruct // current field endpoint struct
 }
 
 var (
@@ -110,6 +111,21 @@ func getCacheStruct(typ reflect.Type, typePath map[reflect.Type]bool) (finalType
 		})
 		cacheFields.Store(originType, finalTypeStruct)
 		typePath[typ] = false
+
+		if finalTypeStruct.err != nil {
+			return
+		}
+		if typ.Kind() == reflect.Slice || typ.Kind() == reflect.Slice {
+			finalTypeStruct = &typeStruct{
+				fields:     finalTypeStruct.fields,
+				elemStruct: getCacheStruct(typ.Elem(), nil),
+			}
+		}
+		for i, field := range finalTypeStruct.fields {
+			if field.FinalStruct == nil {
+				finalTypeStruct.fields[i].FinalStruct = getCacheStruct(field.Type, nil)
+			}
+		}
 	}()
 	if typ.Kind() == reflect.Ptr {
 		typ = typ.Elem()
@@ -146,7 +162,6 @@ func getCacheStruct(typ reflect.Type, typePath map[reflect.Type]bool) (finalType
 			anonymousStructFieldIndex = append(anonymousStructFieldIndex, i)
 			continue
 		}
-		tf.FinalStruct = getCacheStruct(typ, nil)
 		finalFields = append(finalFields, tf)
 		if nameMap[tf.Name] {
 			return &typeStruct{
@@ -171,12 +186,11 @@ func getCacheStruct(typ reflect.Type, typePath map[reflect.Type]bool) (finalType
 			if !nameMap[subField.Name] {
 				nameMap[subField.Name] = true
 				finalFields = append(finalFields, typeField{
-					Type:        subField.Type,
-					Name:        subField.Name,
-					Idx:         anonymousStructFieldIndex[i],
-					NextStruct:  ftStruct,
-					NextIdx:     subField.Idx,
-					FinalStruct: subField.FinalStruct,
+					Type:       subField.Type,
+					Name:       subField.Name,
+					Idx:        anonymousStructFieldIndex[i],
+					NextStruct: ftStruct,
+					NextIdx:    subField.Idx,
 				})
 			}
 		}
@@ -280,7 +294,8 @@ func (c *convertor) Convert(src, dest interface{}) (err error) {
 	if destVal.IsNil() {
 		return ErrNilDestination
 	}
-	return c.convert(reflect.ValueOf(src), destVal)
+	srcVal := reflect.ValueOf(src)
+	return c.convert(srcVal, destVal, nil, nil)
 }
 
 func (c *convertor) getConvertFunc(src, dest reflect.Value) (convertFunc reflect.Value, ok bool) {
@@ -294,7 +309,7 @@ func (c *convertor) getConvertFunc(src, dest reflect.Value) (convertFunc reflect
 	return
 }
 
-func (c *convertor) convert(src, dest reflect.Value) error {
+func (c *convertor) convert(src, dest reflect.Value, srcStruct, destStruct *typeStruct) error {
 	convertFunc, ok := c.getConvertFunc(src, dest)
 	if ok {
 		out := convertFunc.Call([]reflect.Value{indirect(src), dest})
@@ -312,21 +327,27 @@ func (c *convertor) convert(src, dest reflect.Value) error {
 		indirectDest.Set(indirectSrc.Convert(indirectDest.Type()))
 		return nil
 	}
-	srcStruct := getCacheStruct(src.Type(), nil)
-	destStruct := getCacheStruct(dest.Type(), nil)
+	if srcStruct == nil {
+		srcStruct = getCacheStruct(src.Type(), nil)
+	}
+	if destStruct == nil {
+		destStruct = getCacheStruct(dest.Type(), nil)
+	}
 	if srcStruct.err != nil {
 		return srcStruct.err
 	}
 	if destStruct.err != nil {
 		return destStruct.err
 	}
-	if indirect(src).Kind() == reflect.Slice && indirect(dest).Kind() == reflect.Slice {
+	if indirectSrc.Kind() == reflect.Slice && indirectDest.Kind() == reflect.Slice {
 		if src.IsNil() {
 			return nil
 		}
 		src = indirectSrc
 		dest = indirectDest
 		dest.Set(reflect.MakeSlice(dest.Type(), src.Len(), src.Cap()))
+		srcElemStruct := srcStruct.elemStruct
+		destElemStruct := destStruct.elemStruct
 		for i := 0; i < src.Len(); i++ {
 			srcElem := src.Index(i)
 			if srcElem.Kind() == reflect.Ptr && srcElem.IsNil() {
@@ -339,7 +360,7 @@ func (c *convertor) convert(src, dest reflect.Value) error {
 			if destElem.Kind() != reflect.Ptr && destElem.CanAddr() {
 				destElem = destElem.Addr()
 			}
-			if err := c.convert(src.Index(i), destElem); err != nil {
+			if err := c.convert(srcElem, destElem, srcElemStruct, destElemStruct); err != nil {
 				return err
 			}
 		}
@@ -369,13 +390,13 @@ func (c *convertor) convert(src, dest reflect.Value) error {
 			}
 			return err
 		}
-		val := getValueByPath(src, srcFields[i])
+		val, srcFinalStruct := getValueByPath(src, srcFields[i])
 		if val == zeroValue || (val.Kind() == reflect.Ptr && val.IsNil()) {
 			i++
 			j++
 			continue
 		}
-		if err := c.setValueByPath(dest, val, destFields[j]); err != nil {
+		if err := c.setValueByPath(dest, val, destFields[j], srcFinalStruct); err != nil {
 			return err
 		}
 		i++
@@ -396,11 +417,11 @@ func indirect(val reflect.Value) reflect.Value {
 
 var zeroValue = reflect.Value{}
 
-func getValueByPath(val reflect.Value, field typeField) reflect.Value {
+func getValueByPath(val reflect.Value, field typeField) (reflect.Value, *typeStruct) {
 	for {
 		if val.Kind() == reflect.Ptr {
 			if val.IsNil() {
-				return zeroValue
+				return zeroValue, notStructType
 			}
 			val = val.Elem()
 		}
@@ -410,10 +431,10 @@ func getValueByPath(val reflect.Value, field typeField) reflect.Value {
 		}
 		field = field.NextStruct.fields[field.NextIdx]
 	}
-	return val
+	return val, field.FinalStruct
 }
 
-func (c *convertor) setValueByPath(dest, val reflect.Value, field typeField) error {
+func (c *convertor) setValueByPath(dest, val reflect.Value, field typeField, srcFinalStruct *typeStruct) error {
 	for {
 		if dest.Kind() == reflect.Ptr {
 			if dest.IsNil() {
@@ -435,5 +456,5 @@ func (c *convertor) setValueByPath(dest, val reflect.Value, field typeField) err
 	if dest.Kind() != reflect.Ptr && dest.CanAddr() {
 		dest = dest.Addr()
 	}
-	return c.convert(val, dest)
+	return c.convert(val, dest, srcFinalStruct, field.FinalStruct)
 }
