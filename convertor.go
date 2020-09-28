@@ -69,7 +69,7 @@ interface assign
 type typeStruct struct {
 	err        error
 	fields     []typeField
-	elemStruct *typeStruct // array or slice element struct
+	elemStruct *typeStruct // slice element struct
 }
 
 type typeField struct {
@@ -82,13 +82,9 @@ type typeField struct {
 }
 
 var (
-	ErrAmbiguousField          = errors.New("ambiguous field")
-	ErrConflictFieldNameAndTag = errors.New("conflict field name and tag")
-	ErrNotConvertible          = errors.New("not convertible")
-	ErrDestinationNotPointer   = errors.New("destination value is not pointer")
-	ErrNilDestination          = errors.New("nil destination")
-	ErrCircleStructRely        = errors.New("circle struct rely")
-	notStructType              = &typeStruct{}
+	ErrDestinationNotPointer = errors.New("destination value is not pointer")
+	ErrNilDestination        = errors.New("nil destination")
+	notStructType            = &typeStruct{}
 )
 
 func getCacheStruct(typ reflect.Type, typePath map[reflect.Type]bool) (finalTypeStruct *typeStruct) {
@@ -100,7 +96,7 @@ func getCacheStruct(typ reflect.Type, typePath map[reflect.Type]bool) (finalType
 	}
 	if typePath[typ] { // prevent cirle struct rely
 		return &typeStruct{
-			err: ErrCircleStructRely,
+			err: fmt.Errorf("circle struct rely: %s", typ),
 		}
 	}
 	typePath[typ] = true
@@ -115,7 +111,7 @@ func getCacheStruct(typ reflect.Type, typePath map[reflect.Type]bool) (finalType
 		if finalTypeStruct.err != nil {
 			return
 		}
-		if typ.Kind() == reflect.Slice || typ.Kind() == reflect.Slice {
+		if typ.Kind() == reflect.Slice {
 			finalTypeStruct = &typeStruct{
 				fields:     finalTypeStruct.fields,
 				elemStruct: getCacheStruct(typ.Elem(), nil),
@@ -165,7 +161,7 @@ func getCacheStruct(typ reflect.Type, typePath map[reflect.Type]bool) (finalType
 		finalFields = append(finalFields, tf)
 		if nameMap[tf.Name] {
 			return &typeStruct{
-				err: ErrConflictFieldNameAndTag,
+				err: fmt.Errorf("conflict field name and tag: %s", tf.Name),
 			}
 		}
 		nameMap[tf.Name] = true
@@ -176,9 +172,9 @@ func getCacheStruct(typ reflect.Type, typePath map[reflect.Type]bool) (finalType
 		if ftStruct.err != nil {
 			return ftStruct
 		}
-		if inFields(ftStruct.fields, allAnonFields) { // two anonymous field has same sub field
+		if fieldName := inFields(ftStruct.fields, allAnonFields); len(fieldName) > 0 { // two anonymous field has same sub field
 			return &typeStruct{
-				err: ErrAmbiguousField,
+				err: fmt.Errorf("ambiguous field %s", fieldName),
 			}
 		}
 		allAnonFields = append(allAnonFields, ftStruct.fields...)
@@ -200,15 +196,15 @@ func getCacheStruct(typ reflect.Type, typePath map[reflect.Type]bool) (finalType
 	}
 }
 
-func inFields(sub, full []typeField) bool {
+func inFields(sub, full []typeField) string {
 	for _, subField := range sub {
 		for _, fullField := range full {
 			if subField.Name == fullField.Name {
-				return true
+				return subField.Name
 			}
 		}
 	}
-	return false
+	return ""
 }
 
 type Options struct {
@@ -376,7 +372,7 @@ func (c *convertor) convert(src, dest reflect.Value, srcStruct, destStruct *type
 		return nil
 	}
 	if indirectSrc.Kind() != reflect.Struct || indirectDest.Kind() != reflect.Struct {
-		return ErrNotConvertible
+		return fmt.Errorf("type %s is not convertiable to type %s", src.Type(), dest.Type())
 	}
 	srcFields := srcStruct.fields
 	destFields := destStruct.fields

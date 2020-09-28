@@ -1,6 +1,7 @@
 package convertor
 
 import (
+	"fmt"
 	"log"
 	"reflect"
 	"strconv"
@@ -88,21 +89,21 @@ func TestGetCacheStruct(t *testing.T) {
 		TypeB
 	}
 	s = getCacheStruct(reflect.TypeOf(TypeE{}), nil)
-	assert.Equal(t, s.err, ErrAmbiguousField)
+	assert.Equal(t, s.err, fmt.Errorf("ambiguous field FieldBB"))
 
 	type TypeF struct {
 		FieldD string
 		FieldE string `convertor:"FieldD"`
 	}
 	s = getCacheStruct(reflect.TypeOf(TypeF{}), nil)
-	assert.Equal(t, s.err, ErrConflictFieldNameAndTag)
+	assert.Equal(t, s.err, fmt.Errorf("conflict field name and tag: FieldD"))
 	type TypeAA struct {
 		FieldA  *TypeAA
 		FieldBB string
-		*TypeAA // self loop Anonymous will be ignored
+		*TypeAA
 	}
 	s = getCacheStruct(reflect.TypeOf(TypeAA{}), nil)
-	assert.Equal(t, s.err, ErrCircleStructRely)
+	assert.Equal(t, s.err, fmt.Errorf("circle struct rely: %s", reflect.TypeOf(&TypeAA{})))
 }
 
 func TestConvert(t *testing.T) {
@@ -292,7 +293,7 @@ func TestConvertFunc(t *testing.T) {
 	assert.Equal(t, err, ErrDestinationNotPointer)
 	i := new(int)
 	err = Convert("aaa", i)
-	assert.Equal(t, err, ErrNotConvertible)
+	assert.Equal(t, err, fmt.Errorf("type %s is not convertiable to type %s", reflect.TypeOf(""), reflect.TypeOf(i)))
 }
 
 func TestOption(t *testing.T) {
@@ -341,7 +342,7 @@ func TestConvertInterface(t *testing.T) {
 	assert.Equal(t, b.P.FullName(), "aaa bbb")
 	a := &TypeA{}
 	err = Convert(*b, a)
-	assert.Equal(t, err, ErrNotConvertible)
+	assert.Equal(t, err, fmt.Errorf("type convertor.Peopler is not convertiable to type *convertor.People"))
 }
 
 func TestRegisterConvertorFuncError(t *testing.T) {
